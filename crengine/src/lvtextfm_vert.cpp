@@ -508,8 +508,16 @@ static JLReqVertGlueSpec getVerticalBoundaryGlue(bool prev_cjk, JLReqVertClass p
     if ( prev_cjk && curr_cjk )
         return getJLReqVertGlueSpec(prev, curr, profile);
     JLReqVertGlueSpec spec;
-    if ( prev_cjk != curr_cjk )
-        spec.base_eighths = 2; // fixed xkanjiskip = .25em
+    if ( prev_cjk != curr_cjk ) {
+        if ( profile == VERT_PROFILE_CHINESE ) {
+            spec.base_eighths = prev_cjk
+                    ? getJLReqCjkToNonCjkEighths(prev, profile)
+                    : getJLReqNonCjkToCjkEighths(curr, profile);
+        }
+        else {
+            spec.base_eighths = 2; // fixed xkanjiskip = .25em
+        }
+    }
     return spec;
 }
 
@@ -1063,13 +1071,20 @@ void alignLineHorizontalVerticalPostPass( LVFormatter* fmt, formatted_line_t * f
 // (ぁぃぅぇぉっゃゅょゎ etc.).
 // These are pulled back into the previous column when they would otherwise
 // start a new column.
-static inline bool isVertLineStartProhibitedExt(lChar32 ch) {
+static inline bool isVertLineStartProhibitedExt(lChar32 ch, VertProfile profile) {
+    if ( profile == VERT_PROFILE_CHINESE ) {
+        switch (ch) {
+            case 0x2014: // — EM DASH
+            case 0x2015: // ― HORIZONTAL BAR
+            case 0x2025: // ‥ TWO DOT LEADER
+            case 0x2026: // … HORIZONTAL ELLIPSIS
+                return true;
+            default:
+                break;
+        }
+    }
     switch (ch) {
         case 0x30FC: // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
-        case 0x2014: // — EM DASH (also line-start prohibited in Chinese)
-        case 0x2015: // ― HORIZONTAL BAR
-        case 0x2025: // ‥ TWO DOT LEADER
-        case 0x2026: // … HORIZONTAL ELLIPSIS
         case 0x3005: // 々 IDEOGRAPHIC ITERATION MARK
         case 0x303B: // 〻 VERTICAL IDEOGRAPHIC ITERATION MARK
         case 0x309D: // ゝ HIRAGANA ITERATION MARK
@@ -1624,10 +1639,13 @@ void processParagraphVertical( LVFormatter* fmt, int start, int end, bool isLast
             if ( lastMandatoryWrap < 0 && endp > pos && endp < fmt->m_length ) {
                 lChar32 next_ch = fmt->m_text[endp];
                 cjk_type_t next_type = getCJKCharType(next_ch);
-                if ( next_type == cjkt_full_stop || next_type == cjkt_comma ) {
-                    // Estimate how much the hung char occupies: its compressed advance
-                    // is at most avg_char_advance/2 (full_stop/comma are ~50% at line end).
-                    int hung_w = avg_char_advance / 2;
+                VertProfile next_profile = fmt->m_srcs[endp]
+                        ? getVertProfile(fmt->m_srcs[endp]->lang_cfg)
+                        : VERT_PROFILE_JAPANESE;
+                if ( (next_type == cjkt_full_stop || next_type == cjkt_comma)
+                        && isVerticalHangingChar(next_ch, next_profile) ) {
+                    int hung_w = avg_char_advance
+                            * getJLReqVertLayout(getJLReqVertClass(next_ch), next_profile).width_halves / 2;
                     // Prefer the JFM-aware faithful depth (xkanjiskip + inter-class
                     // glue included) when wrapPos is the snapshotted normal wrap;
                     // raw m_advance omits that spacing and under-counts the fill.
@@ -1676,10 +1694,13 @@ void processParagraphVertical( LVFormatter* fmt, int start, int end, bool isLast
                     // pass above no longer re-checks.  Without this the cascade exits
                     // and 。/、 starts the column, violating 行頭禁則 and reverting the
                     // burasagari hang.
+                    VertProfile endp_profile = fmt->m_srcs[endp]
+                            ? getVertProfile(fmt->m_srcs[endp]->lang_cfg)
+                            : VERT_PROFILE_JAPANESE;
                     if ( endp_type == cjkt_closing_bracket
                          || endp_type == cjkt_full_stop
                          || endp_type == cjkt_comma
-                         || isVertLineStartProhibitedExt(endp_ch) ) {
+                         || isVertLineStartProhibitedExt(endp_ch, endp_profile) ) {
                         wrapPos--;
                         endp--;
                         moved = true;

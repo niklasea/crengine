@@ -271,7 +271,7 @@ struct css_style_rec_tag {
     , clear(css_c_none)
     , direction(css_dir_inherit)
     , writing_mode(css_wm_inherit)
-    , text_orientation(css_to_mixed)
+    , text_orientation(css_to_inherit)
     , text_combine_upright(css_tcu_none)
     , text_emphasis_style(css_tes_inherit) // inherited per CSS; consumers treat unresolved inherit as none
     , visibility(css_v_inherit)

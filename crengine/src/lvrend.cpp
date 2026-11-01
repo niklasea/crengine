@@ -4078,7 +4078,7 @@ void renderFinalBlock( ldomNode * enode, LFormattedText * txform, RenderRectAcce
         if ( style->text_combine_upright != css_tcu_none ) { // tate-chu-yoko
             flags |= LTEXT_IS_TCY | LTEXT_HAS_EXTRA;
         }
-        if ( style->text_orientation > css_to_mixed ) { // upright or sideways
+        if ( style->text_orientation > css_to_mixed ) { // FORK (tategumi): upright or sideways
             flags |= LTEXT_HAS_EXTRA;
         }
         if ( style->text_emphasis_style != css_tes_none
@@ -12025,12 +12025,8 @@ void setNodeStyle( ldomNode * enode, css_style_ref_t parent_style, LVFontRef par
     UPDATE_STYLE_FIELD( caption_side, css_cs_inherit );
     UPDATE_STYLE_FIELD( ruby_position, css_rp_inherit );
     UPDATE_STYLE_FIELD( border_collapse, css_border_c_inherit );
-    // Vertical text: writing-mode and text-orientation are inherited per CSS spec
+    // Vertical text: writing-mode and text-orientation are inherited per CSS spec.
     UPDATE_STYLE_FIELD( writing_mode, css_wm_inherit );
-    // Note: text_orientation has initial value css_to_mixed (not css_to_inherit),
-    // so this propagation is currently inert, and no rendering code consumes the
-    // field yet — it is parsed-but-unused.  Left in place for when 'upright' is
-    // wired up; do not rely on it inheriting until the initial value matches.
     UPDATE_STYLE_FIELD( text_orientation, css_to_inherit );
     // text-emphasis-style inherits per CSS Text Decoration L3; without this a
     // <span> child of an emphasised <p> would lose its kenten/bouten marks.

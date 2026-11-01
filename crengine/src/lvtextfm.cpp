@@ -447,6 +447,13 @@ int getLTextExtraProperty( src_text_fragment_t * srcline, ltext_extra_t extra_pr
     return 0;
 }
 
+// FORK (tategumi): text-orientation is a per-fragment extra property.
+static bool isVerticalUprightSource( src_text_fragment_t * srcline ) {
+    return srcline && (srcline->flags & LTEXT_HAS_EXTRA)
+        && getLTextExtraProperty(srcline, LTEXT_EXTRA_CSS_TEXT_ORIENTATION)
+            == css_to_upright;
+}
+
 #ifdef __cplusplus
 
 void LFormattedText::AddSourceObject(
@@ -2109,6 +2116,10 @@ public:
         if (word->t.len > MAX_MEASURED_WORD_SIZE)
             return false;
         lUInt32 hints = WORD_FLAGS_TO_FNT_FLAGS(word->flags);
+        if ( css_wm_is_vertical(m_writing_mode) )
+            hints |= LFNT_HINT_IS_VERTICAL;
+        if ( isVerticalUprightSource(srcline) )
+            hints |= LFNT_HINT_VERTICAL_UPRIGHT;
         srcfont->measureText(
                 str,
                 word->t.len,
@@ -2260,6 +2271,8 @@ public:
                         hints |= LFNT_HINT_IS_VERTICAL;
                         hints |= LFNT_HINT_DIRECTION_KNOWN;
                         hints |= LFNT_HINT_DIRECTION_IS_TTB;
+                        if ( isVerticalUprightSource(lastSrc) )
+                            hints |= LFNT_HINT_VERTICAL_UPRIGHT;
                     }
                     else if ( lastDirection ) {
                         hints |= LFNT_HINT_DIRECTION_KNOWN;

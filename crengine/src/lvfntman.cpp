@@ -3439,6 +3439,9 @@ public:
                                         advance = getJLReqVertSlotWidth(text[hcl], _size, advance, vert_profile);
                                     }
                                 }
+                                // FORK (tategumi): upright glyphs occupy one em.
+                                if ( hints & LFNT_HINT_VERTICAL_UPRIGHT )
+                                    advance = _size;
                             }
                             else if ( glyph_pos[hg].x_advance ) {
                                 advance_64 = glyph_pos[hg].x_advance + _synth_weight_strength;
@@ -3457,6 +3460,9 @@ public:
                                     advance = abs(FONT_METRIC_TO_PX(glyph_pos[hg].x_advance));
                                 if ( advance > 0 && hcl < len )
                                     advance = getJLReqVertSlotWidth(text[hcl], _size, advance, vert_profile);
+                                // FORK (tategumi): upright glyphs occupy one em.
+                                if ( hints & LFNT_HINT_VERTICAL_UPRIGHT )
+                                    advance = _size;
                             }
                             else if ( glyph_pos[hg].x_advance ) {
                                 advance_64 = glyph_pos[hg].x_advance + _synth_weight_strength;
@@ -4969,6 +4975,9 @@ public:
                                 }
                             }
                         }
+                        // FORK (tategumi): upright glyphs occupy one em.
+                        if (is_vertical_draw && (flags & LFNT_HINT_VERTICAL_UPRIGHT))
+                            w = _size;
                         #ifdef DEBUG_DRAW_TEXT
                             printf("%x(x=%d+%d,w=%d) ", glyph_info[i].codepoint, x,
                                 item->origin_x + FONT_METRIC_TO_PX(glyph_pos[i].x_offset), w);
@@ -5100,7 +5109,13 @@ public:
                                     if (cluster_idx < (lUInt32)len)
                                         cluster_char = text[cluster_idx];
                                     JLReqVertClass vert_class = getJLReqVertClass(cluster_char);
-                                    if (vert_class == JLREQ_VERT_CJK_BODY && !is_vert_mark) {
+                                    if ( flags & LFNT_HINT_VERTICAL_UPRIGHT ) {
+                                        gx = x + (_size - (int)item->advance) / 2
+                                            + item->origin_x;
+                                        gy = y + (_size - _height) / 2 + _baseline
+                                            - item->origin_y;
+                                    }
+                                    else if (vert_class == JLREQ_VERT_CJK_BODY && !is_vert_mark) {
                                         // Keep all arithmetic in HarfBuzz/FreeType 26.6 units.
                                         // hb_ft_font uses the same load flags as the cached
                                         // bitmap, so these are the hinted outline extents that

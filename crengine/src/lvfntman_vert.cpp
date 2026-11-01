@@ -41,13 +41,13 @@ bool drawVerticalTextDecorations(
         int text_decoration_back_gap, int target_h, lUInt32 flags)
 {
     bool rotated = flags & LFNT_HINT_RENDER_ROTATE_FOR_VERTICAL;
-    bool upright = flags & LFNT_HINT_IS_VERTICAL;
+    bool is_upright_glyph = flags & LFNT_HINT_IS_VERTICAL;
     bool vertical_edge = flags & LFNT_HINT_VERTICAL_DECORATION_EDGE;
     // TCY keeps its glyphs horizontal, but its decoration still belongs to
     // the vertical line. The resolved decoration edge is therefore also an
     // explicit vertical-context hint, independent of glyph orientation.
     if ( !(flags & LFNT_DRAW_DECORATION_MASK)
-            || (!rotated && !upright && !vertical_edge) )
+            || (!rotated && !is_upright_glyph && !vertical_edge) )
         return false;
 
     int owner_thickness = (flags & LFNT_HINT_VERTICAL_DECORATION_THICKNESS_MASK)
