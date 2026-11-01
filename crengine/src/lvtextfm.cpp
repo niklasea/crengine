@@ -441,6 +441,9 @@ int getLTextExtraProperty( src_text_fragment_t * srcline, ltext_extra_t extra_pr
     if ( extra_property == LTEXT_EXTRA_CSS_TEXT_COMBINE_UPRIGHT ) {
         return (int)style->text_combine_upright; // css_text_combine_upright_t value
     }
+    if ( extra_property == LTEXT_EXTRA_CSS_TEXT_ORIENTATION ) {
+        return (int)style->text_orientation; // css_text_orientation_t value
+    }
     return 0;
 }
 

@@ -4078,6 +4078,9 @@ void renderFinalBlock( ldomNode * enode, LFormattedText * txform, RenderRectAcce
         if ( style->text_combine_upright != css_tcu_none ) { // tate-chu-yoko
             flags |= LTEXT_IS_TCY | LTEXT_HAS_EXTRA;
         }
+        if ( style->text_orientation > css_to_mixed ) { // upright or sideways
+            flags |= LTEXT_HAS_EXTRA;
+        }
         if ( style->text_emphasis_style != css_tes_none
                 && style->text_emphasis_style != css_tes_inherit ) { // kenten/bouten
             // css_tes_inherit is the unresolved initial value (root has no parent

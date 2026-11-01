@@ -394,6 +394,7 @@ struct VertWordLayoutInfo {
     bool pad;
     bool cjk;
     JLReqVertClass jfm_class;
+    VertProfile profile;
     int em;
     int effective_width;
 };
@@ -403,6 +404,7 @@ struct VertColumnFitChar {
     bool object;
     bool inline_box;
     JLReqVertClass jfm_class;
+    VertProfile profile;
     int em;
     int effective_advance;
 };
@@ -411,6 +413,7 @@ struct VertColumnFitState {
     int used;
     int prev_class;
     int prev_cjk_class;
+    VertProfile prev_profile;
 };
 
 static inline int vertEighthsToPx( int em, int eighths ) {
@@ -435,12 +438,13 @@ static inline int vertClampForward( int value, int lower_bound ) {
     return value < lower_bound ? lower_bound : value;
 }
 
-static inline bool isHalfEmJfmClass( JLReqVertClass cls ) {
-    return getJLReqVertLayout(cls).width_halves == 1;
+static inline bool isHalfEmJfmClass( JLReqVertClass cls, VertProfile profile ) {
+    return getJLReqVertLayout(cls, profile).width_halves == 1;
 }
 
-static inline int getVerticalEffectiveTextWidth( int width, int em, bool cjk, JLReqVertClass cls ) {
-    return (cjk && !isHalfEmJfmClass(cls) && width < em) ? em : width;
+static inline int getVerticalEffectiveTextWidth( int width, int em, bool cjk,
+        JLReqVertClass cls, VertProfile profile ) {
+    return (cjk && !isHalfEmJfmClass(cls, profile) && width < em) ? em : width;
 }
 
 static inline int getVerticalImageInlineAdvance( formatted_word_t * word ) {
@@ -469,22 +473,40 @@ struct VertTextTraits {
     bool rotated;
 };
 
+static inline css_text_orientation_t getVerticalTextOrientation(
+        src_text_fragment_t *src) {
+    if ( src && (src->flags & LTEXT_HAS_EXTRA) )
+        return (css_text_orientation_t)getLTextExtraProperty(
+                src, LTEXT_EXTRA_CSS_TEXT_ORIENTATION);
+    return css_to_mixed;
+}
+
 // Shared classification for fitting, positioning and drawing. TCY remains
 // horizontal inside its vertical slot; fullwidth Latin and Japanese marks
 // use the same upright path as CJK, even without the generic CJK flag.
 static VertTextTraits getVerticalTextTraits(const lChar32 * text, int len,
-        bool declared_cjk, bool tcy) {
+        bool declared_cjk, bool tcy, css_text_orientation_t orientation) {
     VertTextTraits traits;
     traits.upright_mark = !tcy && isWordAllVerticalUprightChars(text, len);
     traits.cjk = !tcy && (declared_cjk || traits.upright_mark);
     traits.rotated = !tcy && !traits.cjk;
+    if ( !tcy && orientation == css_to_sideways ) {
+        traits.cjk = false;
+        traits.upright_mark = false;
+        traits.rotated = true;
+    }
+    else if ( !tcy && orientation == css_to_upright ) {
+        traits.cjk = true;
+        traits.upright_mark = false;
+        traits.rotated = false;
+    }
     return traits;
 }
 
 static JLReqVertGlueSpec getVerticalBoundaryGlue(bool prev_cjk, JLReqVertClass prev,
-        bool curr_cjk, JLReqVertClass curr) {
+        bool curr_cjk, JLReqVertClass curr, VertProfile profile) {
     if ( prev_cjk && curr_cjk )
-        return getJLReqVertGlueSpec(prev, curr);
+        return getJLReqVertGlueSpec(prev, curr, profile);
     JLReqVertGlueSpec spec;
     if ( prev_cjk != curr_cjk )
         spec.base_eighths = 2; // fixed xkanjiskip = .25em
@@ -501,12 +523,14 @@ static VertWordLayoutInfo getVerticalWordLayoutInfo( LVFormatter* fmt, formatted
     info.pad = (word->flags & LTEXT_WORD_IS_PAD) != 0;
     info.cjk = false;
     info.jfm_class = JLREQ_VERT_OTHER;
+    info.profile = VERT_PROFILE_JAPANESE;
     info.em = fmt->m_pbuffer->strut_height > 0 ? fmt->m_pbuffer->strut_height : 20;
     info.effective_width = info.image ? getVerticalImageInlineAdvance(word) : (int)word->width;
 
     if ( (int)word->src_text_index >= fmt->m_pbuffer->srctextlen )
         return info;
     src_text_fragment_t * src = &fmt->m_pbuffer->srctext[word->src_text_index];
+    info.profile = getVertProfile(src->lang_cfg);
     info.object = (src->flags & LTEXT_SRC_IS_OBJECT) != 0;
     info.preformatted = (src->flags & LTEXT_FLAG_PREFORMATTED) != 0;
     if ( info.object )
@@ -522,13 +546,14 @@ static VertWordLayoutInfo getVerticalWordLayoutInfo( LVFormatter* fmt, formatted
 
     info.cjk = getVerticalTextTraits(src->t.text + word->t.start, (int)word->t.len,
             (word->flags & (LTEXT_WORD_IS_CJK | LTEXT_WORD_IS_FLEXIBLE_WIDTH_CJK)) != 0,
-            (word->flags & LTEXT_WORD_IS_TCY) != 0).cjk;
+            (word->flags & LTEXT_WORD_IS_TCY) != 0,
+            getVerticalTextOrientation(src)).cjk;
     lChar32 first_char = src->t.text[word->t.start];
     if ( info.cjk )
         info.jfm_class = getJLReqVertClass(first_char);
 
     info.effective_width = getVerticalEffectiveTextWidth((int)word->width,
-            info.em, info.cjk, info.jfm_class);
+            info.em, info.cjk, info.jfm_class, info.profile);
     return info;
 }
 
@@ -536,6 +561,7 @@ static inline void resetVerticalColumnFitState( VertColumnFitState & state ) {
     state.used = 0;
     state.prev_class = 0;       // xkanjiskip tracker: 0 none, +1 non-CJK, -1 CJK
     state.prev_cjk_class = -1;  // JFM-glue tracker: JFM class of last CJK char
+    state.prev_profile = VERT_PROFILE_JAPANESE;
 }
 
 static VertColumnFitChar getVerticalColumnFitChar( LVFormatter* fmt, int index,
@@ -545,6 +571,8 @@ static VertColumnFitChar getVerticalColumnFitChar( LVFormatter* fmt, int index,
     item.object = (fmt->m_flags[index] & LCHAR_IS_OBJECT) != 0;
     item.inline_box = item.object && fmt->m_charindex[index] == INLINEBOX_CHAR_INDEX;
     item.jfm_class = JLREQ_VERT_OTHER;
+    src_text_fragment_t *src = fmt->m_srcs[index];
+    item.profile = src ? getVertProfile(src->lang_cfg) : VERT_PROFILE_JAPANESE;
     item.em = fallback_em;
 
     if ( !item.object && fmt->m_srcs[index] && fmt->m_srcs[index]->t.font ) {
@@ -567,12 +595,13 @@ static VertColumnFitChar getVerticalColumnFitChar( LVFormatter* fmt, int index,
     }
 
     if ( !item.object ) {
-        item.cjk = getVerticalTextTraits(fmt->m_text + index, 1, item.cjk, false).cjk;
+        item.cjk = getVerticalTextTraits(fmt->m_text + index, 1, item.cjk,
+                false, getVerticalTextOrientation(src)).cjk;
         if ( item.cjk )
             item.jfm_class = getJLReqVertClass(fmt->m_text[index]);
     }
     item.effective_advance = getVerticalEffectiveTextWidth(adv_delta,
-            item.em, item.cjk, item.jfm_class);
+            item.em, item.cjk, item.jfm_class, item.profile);
     return item;
 }
 
@@ -587,7 +616,10 @@ static int addVerticalColumnFitChar( VertColumnFitState & state,
         JLReqVertClass prev = state.prev_cjk_class >= 0
             ? (JLReqVertClass)state.prev_cjk_class : JLREQ_VERT_OTHER;
         JLReqVertGlueSpec spec = getVerticalBoundaryGlue(state.prev_class < 0,
-                prev, item.cjk, item.jfm_class);
+                prev, item.cjk, item.jfm_class,
+                state.prev_profile == VERT_PROFILE_CHINESE
+                    || item.profile == VERT_PROFILE_CHINESE
+                    ? VERT_PROFILE_CHINESE : VERT_PROFILE_JAPANESE);
         effective_advance += vertEighthsToPx(item.em, spec.base_eighths);
     }
 
@@ -599,6 +631,7 @@ static int addVerticalColumnFitChar( VertColumnFitState & state,
     else {
         state.prev_class = item.cjk ? -1 : +1;
         state.prev_cjk_class = item.cjk ? (int)item.jfm_class : -1;
+        state.prev_profile = item.profile;
     }
     return effective_advance;
 }
@@ -819,7 +852,10 @@ void alignLineHorizontalVerticalPostPass( LVFormatter* fmt, formatted_line_t * f
             JLReqVertGlueSpec jfm_spec;
             if ( have_prev_info && curr_info.text && prev_info.text ) {
                 jfm_spec = getVerticalBoundaryGlue(prev_info.cjk, prev_info.jfm_class,
-                        curr_info.cjk, curr_info.jfm_class);
+                        curr_info.cjk, curr_info.jfm_class,
+                        prev_info.profile == VERT_PROFILE_CHINESE
+                            || curr_info.profile == VERT_PROFILE_CHINESE
+                            ? VERT_PROFILE_CHINESE : VERT_PROFILE_JAPANESE);
                 int base_glue = vertEighthsToPx(curr_info.em, jfm_spec.base_eighths);
                 if ( base_glue > 0 )
                     vert_layout_min_x += base_glue;
@@ -1030,6 +1066,10 @@ void alignLineHorizontalVerticalPostPass( LVFormatter* fmt, formatted_line_t * f
 static inline bool isVertLineStartProhibitedExt(lChar32 ch) {
     switch (ch) {
         case 0x30FC: // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
+        case 0x2014: // — EM DASH (also line-start prohibited in Chinese)
+        case 0x2015: // ― HORIZONTAL BAR
+        case 0x2025: // ‥ TWO DOT LEADER
+        case 0x2026: // … HORIZONTAL ELLIPSIS
         case 0x3005: // 々 IDEOGRAPHIC ITERATION MARK
         case 0x303B: // 〻 VERTICAL IDEOGRAPHIC ITERATION MARK
         case 0x309D: // ゝ HIRAGANA ITERATION MARK
@@ -1128,7 +1168,9 @@ bool isWordAllVerticalUprightChars(const lChar32 * text, int len) {
 // Returns true if 'ch' is a Japanese/CJK sentence-end character that must not
 // start a new column (line-start kinsoku) and should hang at the bottom of the
 // current column (burasagari / hanging punctuation) instead.
-static inline bool isVerticalHangingChar(lChar32 ch) {
+static inline bool isVerticalHangingChar(lChar32 ch, VertProfile profile) {
+    if ( profile == VERT_PROFILE_CHINESE )
+        return false;
     switch (ch) {
         // JLReq burasagari (ぶら下げ) applies only to the half-em sentence
         // punctuation 、。 (and their fullwidth/middle-dot kin ，．・), whose
@@ -1380,7 +1422,10 @@ void processParagraphVertical( LVFormatter* fmt, int start, int end, bool isLast
                     // at the column bottom with its ink in the upper portion of the em-square
                     // (where +vert places 。/、), so it remains fully visible even though the
                     // trailing blank of the em-square may be clipped at clip.bottom.
-                    if ( fmt->m_hanging_punctuation && isVerticalHangingChar(fmt->m_text[i]) ) {
+                    if ( fmt->m_hanging_punctuation
+                            && isVerticalHangingChar(fmt->m_text[i],
+                                fmt->m_srcs[i] ? getVertProfile(fmt->m_srcs[i]->lang_cfg)
+                                               : VERT_PROFILE_JAPANESE) ) {
                         int prev_adv = fit.used - eff_adv;
                         if ( y + prev_adv <= maxHeight ) {
                             ltext_vert_hanging_layout_count++;
@@ -2359,6 +2404,7 @@ void drawVerticalEmphasisMarks(
         default:                    mark = 0x2022; break; // • filled dot (initial)
     }
     int em = font->getSize();
+    const VertProfile profile = getVertProfile(srcline->lang_cfg);
     // In vertical-rl, marks go to the right of each char (= "before" dir).
     int x_mark = line_x;
     int char_count = word->t.len;
@@ -2369,7 +2415,7 @@ void drawVerticalEmphasisMarks(
     int total_adv = 0;
     for ( int mc = 0; mc < char_count; mc++ ) {
         lChar32 ch = srcline->t.text[word->t.start + mc];
-        total_adv += em * getJLReqVertLayout(getJLReqVertClass(ch)).width_halves / 2;
+        total_adv += em * getJLReqVertLayout(getJLReqVertClass(ch), profile).width_halves / 2;
     }
     int clamped_x = word->x;
     if ( clamped_x < state.vert_min_next_x - total_adv )
@@ -2377,7 +2423,7 @@ void drawVerticalEmphasisMarks(
     int adv = 0;
     for ( int mc = 0; mc < char_count; mc++ ) {
         lChar32 ch = srcline->t.text[word->t.start + mc];
-        int slot = em * getJLReqVertLayout(getJLReqVertClass(ch)).width_halves / 2;
+        int slot = em * getJLReqVertLayout(getJLReqVertClass(ch), profile).width_halves / 2;
         // Center the mark within this char's slot (so a half-em punctuation's
         // mark is not nudged toward the next char).
         int y_mark = y + frmline->x + clamped_x + adv + (slot - em) / 2;
@@ -2612,10 +2658,12 @@ VerticalWordPlacement applyVerticalWordDraw(
     // Japanese horizontal marks (―, —, …, 〜, etc.) are below U+2E80 and would
     // default to the Latin-rotated path; route them through the CJK +vert path.
     VerticalWordPlacement placement;
+    const css_text_orientation_t orientation = getVerticalTextOrientation(srcline);
     VertTextTraits traits = getVerticalTextTraits(
         srcline->t.text + word->t.start, (int)word->t.len,
         (word->flags & (LTEXT_WORD_IS_CJK | LTEXT_WORD_IS_FLEXIBLE_WIDTH_CJK)) != 0,
-        (word->flags & LTEXT_WORD_IS_TCY) != 0);
+        (word->flags & LTEXT_WORD_IS_TCY) != 0,
+        orientation);
     bool word_is_vert_mark = traits.upright_mark;
     bool word_is_latin_in_vertical = traits.rotated;
     placement.rotated = traits.rotated;
@@ -2625,6 +2673,8 @@ VerticalWordPlacement applyVerticalWordDraw(
         drawFlags |= LFNT_HINT_IS_VERTICAL;
     if ( word_is_latin_in_vertical )
         drawFlags |= LFNT_HINT_RENDER_ROTATE_FOR_VERTICAL;
+    if ( orientation == css_to_upright )
+        drawFlags |= LFNT_HINT_VERTICAL_UPRIGHT;
     if ( word_is_vert_mark )
         drawFlags |= LFNT_HINT_VERTICAL_MARK;
 
@@ -2723,6 +2773,7 @@ VerticalWordPlacement applyVerticalWordDraw(
     if ( srcline->t.text && word->t.len > 0 ) {
         curr_cjk_class = getJLReqVertClass(srcline->t.text[word->t.start]);
     }
+    const VertProfile vert_profile = getVertProfile(srcline->lang_cfg);
     // word->x carries the LAYOUT post-pass position, including JFM base glue,
     // xkanjiskip and justification stretch/shrink. getRect() uses word->x to
     // position the highlight rect, so DRAW must place the glyph at the same
@@ -2736,7 +2787,7 @@ VerticalWordPlacement applyVerticalWordDraw(
     // chars: Phase 3 intentionally sets word->width = em/2 for class
     // [1][2][3][4][7], and clamping would re-introduce a half-em gap.
     int effective_width = getVerticalEffectiveTextWidth((int)word->width,
-            font->getSize(), true, curr_cjk_class);
+            font->getSize(), true, curr_cjk_class, vert_profile);
     if ( verticalSpacingDebugEnabled() && srcline->t.text && word->t.len > 0 ) {
         CRLog::info(
             "VERT_SPACING U+%04X raw_x=%d prev_end=%d clamped=%d "
@@ -2773,7 +2824,8 @@ VerticalWordPlacement applyVerticalWordDraw(
     // a fully contained vertical column, so let DrawTextString use that clip.
     // Keep the regular early-out for every other character.
     bool is_hanging_punctuation = srcline->t.text && word->t.len == 1
-            && isVerticalHangingChar(srcline->t.text[word->t.start]);
+            && isVerticalHangingChar(srcline->t.text[word->t.start],
+                    getVertProfile(srcline->lang_cfg));
     // JFM compression and inter-class glue can place the punctuation origin a
     // few pixels before the regular bottom while its allocated slot still
     // crosses that boundary. Treat that as hanging too: checking y0 alone

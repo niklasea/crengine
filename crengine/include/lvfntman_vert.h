@@ -22,6 +22,17 @@ struct FT_FaceRec_;
 typedef struct FT_FaceRec_ * FT_Face;
 typedef struct hb_font_t hb_font_t;
 class LVDrawBuf;
+class TextLangCfg;
+
+// Chinese vertical composition keeps punctuation at full em; Japanese JFM
+// compacts it to half em.  The profile is selected per text fragment from
+// TextLangCfg so mixed-language documents keep their respective rules.
+enum VertProfile {
+    VERT_PROFILE_JAPANESE = 0,
+    VERT_PROFILE_CHINESE = 1
+};
+
+VertProfile getVertProfile(TextLangCfg *lang_cfg);
 
 // Paint CSS text decorations for a run laid out on a vertical inline axis.
 // Kept in the fork-only implementation so the upstream font manager only
@@ -150,14 +161,16 @@ struct JLReqVertLayout {
     lUInt8 align;
 };
 
-JLReqVertLayout getJLReqVertLayout(JLReqVertClass cls);
+JLReqVertLayout getJLReqVertLayout(JLReqVertClass cls,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
 
 // JFM slot width (advance dimension) for `c`, in pixels.  For named JFM
 // classes returns `em_px * width_halves / 2` (em or em/2).  For
 // JLREQ_VERT_OTHER (chars not in jfm-ujisv — e.g. Latin glyphs reaching
 // this path via a buggy classifier or future extension), returns
 // `natural_advance_px` so the font's own advance is preserved.
-int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px);
+int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
 
 // Convenience: JFM in-slot shift (cwa) in the advance direction for `c`,
 // in pixels.  Implements `cwa = align * (fwidth - vadv)` from LuaTeX-ja
@@ -168,7 +181,8 @@ int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px);
 // Phase 3 applied.  Returns a NEGATIVE value for half-em classes with
 // align >= MIDDLE (shifting the glyph "backward" = up in tate to overlap the
 // previous slot), and 0 for a glyph that already fills its slot.
-int getJLReqVertCwa(lChar32 c, int em_px, int vadv_px);
+int getJLReqVertCwa(lChar32 c, int em_px, int vadv_px,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
 
 // LuaTeX-ja vform table port (ltj-jfont.lua:945-957, ltj-pretreat.lua:171-175).
 //
@@ -244,8 +258,10 @@ struct JLReqVertGlueSpec {
           is_kern(kern) {}
 };
 
-JLReqVertGlueSpec getJLReqVertGlueSpec(JLReqVertClass prev_class, JLReqVertClass next_class);
-int getJLReqGlueKernEighths(JLReqVertClass prev_class, JLReqVertClass next_class);
+JLReqVertGlueSpec getJLReqVertGlueSpec(JLReqVertClass prev_class,
+        JLReqVertClass next_class, VertProfile profile = VERT_PROFILE_JAPANESE);
+int getJLReqGlueKernEighths(JLReqVertClass prev_class, JLReqVertClass next_class,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
 
 // JFM inter-class spacing for CJK ↔ non-CJK boundary, eighths of em.
 //
@@ -265,8 +281,10 @@ int getJLReqGlueKernEighths(JLReqVertClass prev_class, JLReqVertClass next_class
 //
 // Both return the base value in eighths of em.  Caller multiplies by
 // em / 8 to get pixel spacing.
-int getJLReqCjkToNonCjkEighths(JLReqVertClass curr_cls);
-int getJLReqNonCjkToCjkEighths(JLReqVertClass next_cls);
+int getJLReqCjkToNonCjkEighths(JLReqVertClass curr_cls,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
+int getJLReqNonCjkToCjkEighths(JLReqVertClass next_cls,
+        VertProfile profile = VERT_PROFILE_JAPANESE);
 
 // Per-face TTB glyph-metrics cache.  Lazily populated via
 // FT_LOAD_VERTICAL_LAYOUT on first lookup of each glyph.  Held as a

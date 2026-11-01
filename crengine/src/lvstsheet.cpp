@@ -170,13 +170,21 @@ enum css_decl_code {
     cssd_writing_mode,
     cssd_writing_mode2, // -webkit-writing-mode (vendor-prefixed alias used by many EPUBs)
     cssd_writing_mode3, // -epub-writing-mode (legacy EPUB alias)
+    cssd_writing_mode4, // -ms-writing-mode (legacy EPUB alias)
     cssd_text_orientation,
+    cssd_text_orientation2, // -epub-text-orientation
+    cssd_text_orientation3, // -webkit-text-orientation
     cssd_text_combine_upright,
     cssd_text_combine_upright2,
     cssd_text_combine_upright3,
+    cssd_text_combine_upright4, // text-combine-horizontal (legacy EPUB alias)
+    cssd_text_combine_upright5, // -ms-text-combine-horizontal
     cssd_text_emphasis,
     cssd_text_emphasis2,
     cssd_text_emphasis3,
+    cssd_text_emphasis_style,
+    cssd_text_emphasis_style2, // -webkit-text-emphasis-style
+    cssd_text_emphasis_style3, // -epub-text-emphasis-style
     cssd_visibility,
     cssd_line_break,
     cssd_line_break2,
@@ -325,13 +333,21 @@ static const char * css_decl_name[] = {
     "writing-mode",
     "-webkit-writing-mode",
     "-epub-writing-mode",
+    "-ms-writing-mode",
     "text-orientation",
+    "-epub-text-orientation",
+    "-webkit-text-orientation",
     "text-combine-upright",
     "-epub-text-combine",
     "-webkit-text-combine",
+    "text-combine-horizontal",
+    "-ms-text-combine-horizontal",
     "text-emphasis",
     "-webkit-text-emphasis",
     "-epub-text-emphasis",
+    "text-emphasis-style",
+    "-webkit-text-emphasis-style",
+    "-epub-text-emphasis-style",
     "visibility",
     "line-break",
     "-epub-line-break",
@@ -5574,8 +5590,16 @@ bool LVCssDeclaration::parse( const char * &decl, bool higher_importance, lxmlDo
             case cssd_writing_mode:
             case cssd_writing_mode2: // -webkit-writing-mode
             case cssd_writing_mode3: // -epub-writing-mode
+            case cssd_writing_mode4: // -ms-writing-mode
                 IF_g_SET_n_AND_break(true, css_wm_inherit, css_wm_horizontal_tb);
-                n = parse_name( decl, css_wm_names, -1 );
+                if ( substr_icompare("tb-rl", decl) )
+                    n = css_wm_vertical_rl;
+                else if ( substr_icompare("tb-lr", decl) )
+                    n = css_wm_vertical_lr;
+                else if ( substr_icompare("lr-tb", decl) || substr_icompare("rl-tb", decl) )
+                    n = css_wm_horizontal_tb;
+                else
+                    n = parse_name( decl, css_wm_names, -1 );
                 // vertical-lr is rendered as vertical-rl (unsupported): the fork's
                 // target is Japanese tategumi, and CSSLogical BS/BE indices and the
                 // draw anchor are hard-coded rl.  Alias at parse time so the value is
@@ -5584,12 +5608,19 @@ bool LVCssDeclaration::parse( const char * &decl, bool higher_importance, lxmlDo
                 n = css_wm_normalize(n);
                 break;
             case cssd_text_orientation:
+            case cssd_text_orientation2: // -epub-text-orientation
+            case cssd_text_orientation3: // -webkit-text-orientation
                 IF_g_SET_n_AND_break(true, css_to_inherit, css_to_mixed);
-                n = parse_name( decl, css_to_names, -1 );
+                if ( substr_icompare("rotate-right", decl) )
+                    n = css_to_sideways;
+                else
+                    n = parse_name( decl, css_to_names, -1 );
                 break;
             case cssd_text_combine_upright:
             case cssd_text_combine_upright2: // -epub-text-combine
             case cssd_text_combine_upright3: // -webkit-text-combine
+            case cssd_text_combine_upright4: // text-combine-horizontal
+            case cssd_text_combine_upright5: // -ms-text-combine-horizontal
                 prop_code = cssd_text_combine_upright;
                 IF_g_SET_n_AND_break(false, css_tcu_none, css_tcu_none);
                 // -epub-text-combine / -webkit-text-combine: "horizontal" maps to "all".
@@ -5644,6 +5675,28 @@ bool LVCssDeclaration::parse( const char * &decl, bool higher_importance, lxmlDo
                         // "filled" or "open" alone → default shape = sesame for CJK
                         n = is_open ? css_tes_open_sesame : css_tes_filled_sesame;
                     }
+                }
+                break;
+            case cssd_text_emphasis_style:
+            case cssd_text_emphasis_style2: // -webkit-text-emphasis-style
+            case cssd_text_emphasis_style3: // -epub-text-emphasis-style
+                prop_code = cssd_text_emphasis_style;
+                IF_g_SET_n_AND_break(true, css_tes_inherit, css_tes_none);
+                {
+                    bool is_open = false;
+                    if ( substr_icompare("filled", decl) ) {
+                        skip_spaces(decl);
+                    } else if ( substr_icompare("open", decl) ) {
+                        is_open = true;
+                        skip_spaces(decl);
+                    }
+                    int shape = parse_name( decl, css_tes_shape_names, -1 );
+                    if ( shape >= 0 )
+                        n = 1 + shape * 2 + (is_open ? 1 : 0);
+                    else if ( substr_icompare("none", decl) )
+                        n = css_tes_none;
+                    else
+                        n = is_open ? css_tes_open_sesame : css_tes_filled_sesame;
                 }
                 break;
             case cssd_visibility:
@@ -6660,6 +6713,7 @@ void LVCssDeclaration::apply( css_style_rec_t * style, const ldomNode * node ) c
         case cssd_writing_mode:
         case cssd_writing_mode2: // -webkit-writing-mode
         case cssd_writing_mode3: // -epub-writing-mode
+        case cssd_writing_mode4: // -ms-writing-mode
             {
                 css_writing_mode_t wm_val = (css_writing_mode_t) *p++;
                 style->Apply( wm_val, &style->writing_mode, imp_bit_writing_mode, is_important );
@@ -6667,6 +6721,8 @@ void LVCssDeclaration::apply( css_style_rec_t * style, const ldomNode * node ) c
             }
             break;
         case cssd_text_orientation:
+        case cssd_text_orientation2: // -epub-text-orientation
+        case cssd_text_orientation3: // -webkit-text-orientation
             style->Apply( (css_text_orientation_t) *p++, &style->text_orientation, imp_bit_text_orientation, is_important );
             style->flags |= STYLE_REC_FLAG_INHERITABLE_APPLIED;
             break;
@@ -6674,6 +6730,7 @@ void LVCssDeclaration::apply( css_style_rec_t * style, const ldomNode * node ) c
             style->Apply( (css_text_combine_upright_t) *p++, &style->text_combine_upright, imp_bit_text_combine_upright, is_important );
             break;
         case cssd_text_emphasis:
+        case cssd_text_emphasis_style:
             style->Apply( (css_text_emphasis_style_t) *p++, &style->text_emphasis_style, imp_bit_text_emphasis_style, is_important );
             style->flags |= STYLE_REC_FLAG_INHERITABLE_APPLIED;
             break;

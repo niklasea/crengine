@@ -3098,6 +3098,7 @@ public:
         }
 
         int i;
+        const VertProfile vert_profile = getVertProfile(lang_cfg);
 
         lUInt16 prev_width = 0;
         lUInt16 cur_width = 0;
@@ -3435,7 +3436,7 @@ public:
                                         if ( h_adv > 0 )
                                             advance = FONT_METRIC_TO_PX(h_adv);
                                     } else {
-                                        advance = getJLReqVertSlotWidth(text[hcl], _size, advance);
+                                        advance = getJLReqVertSlotWidth(text[hcl], _size, advance, vert_profile);
                                     }
                                 }
                             }
@@ -3455,7 +3456,7 @@ public:
                                 else if ( glyph_pos[hg].x_advance )
                                     advance = abs(FONT_METRIC_TO_PX(glyph_pos[hg].x_advance));
                                 if ( advance > 0 && hcl < len )
-                                    advance = getJLReqVertSlotWidth(text[hcl], _size, advance);
+                                    advance = getJLReqVertSlotWidth(text[hcl], _size, advance, vert_profile);
                             }
                             else if ( glyph_pos[hg].x_advance ) {
                                 advance_64 = glyph_pos[hg].x_advance + _synth_weight_strength;
@@ -4560,6 +4561,7 @@ public:
         FONT_GUARD
         if ( len <= 0 || _face==NULL )
             return 0;
+        const VertProfile vert_profile = getVertProfile(lang_cfg);
         if ( letter_spacing < 0 ) {
             letter_spacing = 0;
         }
@@ -4963,7 +4965,7 @@ public:
                                     if (h_adv > 0)
                                         w = FONT_METRIC_TO_PX(h_adv);
                                 } else {
-                                    w = getJLReqVertSlotWidth(text[ci], _size, w);
+                                    w = getJLReqVertSlotWidth(text[ci], _size, w, vert_profile);
                                 }
                             }
                         }
@@ -5161,7 +5163,7 @@ public:
                                         }
                                     } else {
                                         int cwa = getJLReqVertCwa(cluster_char, _size,
-                                            vert_natural_adv);
+                                            vert_natural_adv, vert_profile);
                                         VertGlyphMetrics vm;
                                         if (_vert_metrics_cache.get(_face,
                                                 glyph_info[i].codepoint, vm)) {
@@ -5183,7 +5185,8 @@ public:
                                     }
                                 }
                                 bool did_rotate = false;
-                                if (is_vertical_draw && item->bmp_pixelformat != 4) {
+                                if (is_vertical_draw && item->bmp_pixelformat != 4
+                                        && !(flags & LFNT_HINT_VERTICAL_UPRIGHT)) {
                                     lUInt32 cluster = glyph_info[i].cluster;
                                     if (cluster < (lUInt32)len && needsVerticalRotation90CW(text[cluster])) {
                                         hb_codepoint_t nominal = 0;

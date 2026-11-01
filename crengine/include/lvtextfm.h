@@ -109,6 +109,7 @@ enum ltext_extra_t {
     LTEXT_EXTRA_CSS_WORD_BREAK,         // word-break: break-all or keep-all
     LTEXT_EXTRA_CSS_TEXT_EMPHASIS,      // text-emphasis-style: kenten/bouten emphasis marks (value = css_text_emphasis_style_t)
     LTEXT_EXTRA_CSS_TEXT_COMBINE_UPRIGHT, // text-combine-upright (value = css_text_combine_upright_t)
+    LTEXT_EXTRA_CSS_TEXT_ORIENTATION,   // text-orientation (value = css_text_orientation_t)
 };
 
 // Text color reserved values

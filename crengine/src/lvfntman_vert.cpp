@@ -27,6 +27,14 @@
 #include FT_FREETYPE_H
 #include <hb.h>
 
+VertProfile getVertProfile(TextLangCfg *lang_cfg)
+{
+    if ( lang_cfg
+            && (lang_cfg->isSimplifiedChinese() || lang_cfg->isTraditionalChinese()) )
+        return VERT_PROFILE_CHINESE;
+    return VERT_PROFILE_JAPANESE;
+}
+
 bool drawVerticalTextDecorations(
         LVDrawBuf * buf, int x, int y, int width, int advance,
         int font_size, int font_height, int thickness,
@@ -252,11 +260,32 @@ JLReqVertClass getJLReqVertClass(lChar32 c)
 
 // Per-class layout — mirrors LuaTeX-ja jfm-ujisv.lua's char_data
 // (width / align fields).  See enum JLReqVertClass in lvfntman_vert.h.
-JLReqVertLayout getJLReqVertLayout(JLReqVertClass cls)
+JLReqVertLayout getJLReqVertLayout(JLReqVertClass cls, VertProfile profile)
 {
     JLReqVertLayout out;
     out.width_halves = 2;            // full em by default
     out.align        = JLREQ_ALIGN_MIDDLE;
+    if ( profile == VERT_PROFILE_CHINESE ) {
+        // clreq keeps Chinese punctuation in full-em cells.  Halfwidth
+        // katakana, combining marks and the two-em kana repeat marks retain
+        // their own advance semantics.
+        switch (cls) {
+            case JLREQ_VERT_HALF_KANA:
+                out.width_halves = 1;
+                out.align        = JLREQ_ALIGN_LEFT;
+                break;
+            case JLREQ_VERT_COMBINING_MARK:
+                out.width_halves = 0;
+                out.align        = JLREQ_ALIGN_RIGHT;
+                break;
+            case JLREQ_VERT_KANA_REPEAT:
+                out.width_halves = 4;
+                break;
+            default:
+                break;
+        }
+        return out;
+    }
     switch (cls) {
         case JLREQ_VERT_CJK_BODY:
             // full em, centred — natural placement for ideographs/kana
@@ -331,7 +360,8 @@ JLReqVertLayout getJLReqVertLayout(JLReqVertClass cls)
     return out;
 }
 
-int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px)
+int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px,
+        VertProfile profile)
 {
     JLReqVertClass cls = getJLReqVertClass(c);
     if (cls == JLREQ_VERT_OTHER)
@@ -346,13 +376,13 @@ int getJLReqVertSlotWidth(lChar32 c, int em_px, int natural_advance_px)
     // unaffected.
     if (natural_advance_px > (em_px * 3) / 2)
         return natural_advance_px;
-    JLReqVertLayout layout = getJLReqVertLayout(cls);
+    JLReqVertLayout layout = getJLReqVertLayout(cls, profile);
     return (em_px * layout.width_halves) / 2;
 }
 
-int getJLReqVertCwa(lChar32 c, int em_px, int vadv_px)
+int getJLReqVertCwa(lChar32 c, int em_px, int vadv_px, VertProfile profile)
 {
-    JLReqVertLayout layout = getJLReqVertLayout(getJLReqVertClass(c));
+    JLReqVertLayout layout = getJLReqVertLayout(getJLReqVertClass(c), profile);
     // cwa = align_num * (fwidth - vadv) per ltj-setwidth.lua:269.
     // align_num: 0 (left), 0.5 (middle), 1 (right) — our enum maps to
     // 0, 1, 2; divide by 2 to recover the fractional value.
@@ -362,7 +392,7 @@ int getJLReqVertCwa(lChar32 c, int em_px, int vadv_px)
     // For a font-supplied 2em glyph fwidth == vadv_px → cwa = 0 (the glyph
     // already fills its slot), avoiding the spurious half-em overshoot that a
     // hardcoded vadv = em produced.
-    int fwidth = getJLReqVertSlotWidth(c, em_px, vadv_px);
+    int fwidth = getJLReqVertSlotWidth(c, em_px, vadv_px, profile);
     return (((int)layout.align) * (fwidth - vadv_px)) / 2;
 }
 
@@ -435,8 +465,13 @@ static inline JLReqVertGlueSpec jfmNone()
     return JLReqVertGlueSpec();
 }
 
-JLReqVertGlueSpec getJLReqVertGlueSpec(JLReqVertClass prev_class, JLReqVertClass next_class)
+JLReqVertGlueSpec getJLReqVertGlueSpec(JLReqVertClass prev_class,
+        JLReqVertClass next_class, VertProfile profile)
 {
+    // Chinese full-em punctuation already carries its side bearings; Japanese
+    // JFM glue would add another quarter/half em between glyphs.
+    if ( profile == VERT_PROFILE_CHINESE )
+        return jfmNone();
     // Encodes jfm-ujisv.lua [N].glue[M] in eighths of em.
     // Switch on prev (rows of the matrix), then next (columns).
     // Pairs not listed default to 0.
@@ -546,13 +581,16 @@ JLReqVertGlueSpec getJLReqVertGlueSpec(JLReqVertClass prev_class, JLReqVertClass
     return jfmNone();
 }
 
-int getJLReqGlueKernEighths(JLReqVertClass prev_class, JLReqVertClass next_class)
+int getJLReqGlueKernEighths(JLReqVertClass prev_class, JLReqVertClass next_class,
+        VertProfile profile)
 {
-    return getJLReqVertGlueSpec(prev_class, next_class).base_eighths;
+    return getJLReqVertGlueSpec(prev_class, next_class, profile).base_eighths;
 }
 
-int getJLReqCjkToNonCjkEighths(JLReqVertClass curr_cls)
+int getJLReqCjkToNonCjkEighths(JLReqVertClass curr_cls, VertProfile profile)
 {
+    if ( profile == VERT_PROFILE_CHINESE )
+        return curr_cls == JLREQ_VERT_COMBINING_MARK ? 0 : 2;
     // CJK_curr.glue[100] = CJK_curr.glue[0] (per LuaTeX-ja ltj-jfont.lua:294-302),
     // EXCEPT class [6] (EXCLAM_QUEST) which is explicitly excluded from this
     // propagation.  Where no entry exists, xkanjiskip = 0.25em (= 2 eighths) applies.
@@ -575,8 +613,10 @@ int getJLReqCjkToNonCjkEighths(JLReqVertClass curr_cls)
     return 2;
 }
 
-int getJLReqNonCjkToCjkEighths(JLReqVertClass next_cls)
+int getJLReqNonCjkToCjkEighths(JLReqVertClass next_cls, VertProfile profile)
 {
+    if ( profile == VERT_PROFILE_CHINESE )
+        return next_cls == JLREQ_VERT_COMBINING_MARK ? 0 : 2;
     // [100].glue[next] = [0].glue[next] (full body CJK propagation).
     // Entries from jfm-ujisv [0].glue (line 18-28).  No entry → xkanjiskip.
     switch (next_cls) {
